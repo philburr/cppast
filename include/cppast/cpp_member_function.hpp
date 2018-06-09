@@ -108,9 +108,9 @@ namespace cppast
         {
         public:
             /// \effects Sets the name and return type.
-            basic_member_builder(std::string name, std::unique_ptr<cpp_type> return_type)
+            basic_member_builder(std::string name, std::unique_ptr<cpp_type> return_type, unsigned start_offset, unsigned body_start_offset, unsigned body_end_offset)
             {
-                this->function = std::unique_ptr<T>(new T(std::move(name), std::move(return_type)));
+                this->function = std::unique_ptr<T>(new T(std::move(name), std::move(return_type), start_offset, body_start_offset, body_end_offset));
             }
 
             /// \effects Sets the cv- and ref-qualifier.
@@ -138,8 +138,8 @@ namespace cppast
         };
 
         /// \effects Sets name and return type, as well as the rest to defaults.
-        cpp_member_function_base(std::string name, std::unique_ptr<cpp_type> return_type)
-        : cpp_function_base(std::move(name)),
+        cpp_member_function_base(std::string name, std::unique_ptr<cpp_type> return_type, unsigned start_offset, unsigned body_start_offset, unsigned body_end_offset)
+        : cpp_function_base(std::move(name), start_offset, body_start_offset, body_end_offset),
           return_type_(std::move(return_type)),
           cv_(cpp_cv_none),
           ref_(cpp_ref_none),
@@ -210,8 +210,8 @@ namespace cppast
         }
 
     private:
-        cpp_conversion_op(std::string name, std::unique_ptr<cpp_type> return_t)
-        : cpp_member_function_base(std::move(name), std::move(return_t)), explicit_(false)
+        cpp_conversion_op(std::string name, std::unique_ptr<cpp_type> return_t, unsigned start_offset, unsigned body_start_offset, unsigned body_end_offset)
+        : cpp_member_function_base(std::move(name), std::move(return_t), start_offset, body_start_offset, body_end_offset), explicit_(false)
         {
         }
 
@@ -260,8 +260,8 @@ namespace cppast
         }
 
     private:
-        cpp_constructor(std::string name)
-        : cpp_function_base(std::move(name)), explicit_(false), constexpr_(false)
+        cpp_constructor(std::string name, unsigned start_offset, unsigned body_start_offset, unsigned body_end_offset)
+        : cpp_function_base(std::move(name), start_offset, body_start_offset, body_end_offset), explicit_(false), constexpr_(false)
         {
         }
 
@@ -309,7 +309,7 @@ namespace cppast
         }
 
     private:
-        cpp_destructor(std::string name) : cpp_function_base(std::move(name)) {}
+        cpp_destructor(std::string name, unsigned start_offset, unsigned body_start_offset, unsigned body_end_offset) : cpp_function_base(std::move(name), start_offset, body_start_offset, body_end_offset) {}
 
         cpp_entity_kind do_get_entity_kind() const noexcept override;
 

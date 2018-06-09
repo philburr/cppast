@@ -102,6 +102,9 @@ namespace cppast
             return do_get_signature();
         }
 
+        unsigned body_start() const { return body_start_offset_; }
+        unsigned body_end() const { return body_end_offset_; }
+
     protected:
         /// Builder class for functions.
         ///
@@ -111,7 +114,7 @@ namespace cppast
         {
         public:
             /// \effects Sets the name.
-            basic_builder(std::string name) : function(new T(name)) {}
+            basic_builder(std::string name, unsigned start_offset, unsigned body_start_offset, unsigned body_end_offset) : function(new T(name, start_offset, body_start_offset, body_end_offset)) {}
 
             /// \effects Adds a parameter.
             void add_parameter(std::unique_ptr<cpp_function_parameter> parameter)
@@ -177,8 +180,8 @@ namespace cppast
             std::unique_ptr<T> function;
         };
 
-        cpp_function_base(std::string name)
-        : cpp_entity(std::move(name)), body_(cpp_function_declaration), variadic_(false)
+        cpp_function_base(std::string name, unsigned start_offset, unsigned body_start_offset, unsigned body_end_offset)
+        : cpp_entity(std::move(name), start_offset), body_start_offset_(body_start_offset), body_end_offset_(body_end_offset), body_(cpp_function_declaration), variadic_(false)
         {
         }
 
@@ -191,6 +194,9 @@ namespace cppast
         std::unique_ptr<cpp_expression>                noexcept_expr_;
         cpp_function_body_kind                         body_;
         bool                                           variadic_;
+        unsigned                                       start_offset_;
+        unsigned                                       body_start_offset_;
+        unsigned                                       body_end_offset_;
     };
 
     /// A [cppast::cpp_entity]() modelling a C++ function.
@@ -207,10 +213,10 @@ namespace cppast
         {
         public:
             /// \effects Sets the name and return type.
-            builder(std::string name, std::unique_ptr<cpp_type> return_type)
+            builder(std::string name, std::unique_ptr<cpp_type> return_type, unsigned start_offset, unsigned body_start_offset, unsigned body_end_offset)
             {
                 function = std::unique_ptr<cpp_function>(
-                    new cpp_function(std::move(name), std::move(return_type)));
+                    new cpp_function(std::move(name), std::move(return_type), start_offset, body_start_offset, body_end_offset));
             }
 
             /// \effects Sets the storage class.
@@ -249,8 +255,8 @@ namespace cppast
     private:
         cpp_entity_kind do_get_entity_kind() const noexcept override;
 
-        cpp_function(std::string name, std::unique_ptr<cpp_type> ret)
-        : cpp_function_base(std::move(name)),
+        cpp_function(std::string name, std::unique_ptr<cpp_type> ret, unsigned start_offset, unsigned body_start_offset, unsigned body_end_offset)
+        : cpp_function_base(std::move(name), start_offset, body_start_offset, body_end_offset),
           return_type_(std::move(ret)),
           storage_(cpp_storage_class_auto),
           constexpr_(false)

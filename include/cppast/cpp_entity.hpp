@@ -73,6 +73,11 @@ namespace cppast
             return name_;
         }
 
+        uint32_t offset() const noexcept
+        {
+            return offset_;
+        }
+
         /// \returns The name of the new scope created by the entity,
         /// if there is any.
         type_safe::optional<cpp_scope_name> scope_name() const
@@ -161,7 +166,7 @@ namespace cppast
 
     protected:
         /// \effects Creates it giving it the the name.
-        cpp_entity(std::string name) : name_(std::move(name)), user_data_(nullptr) {}
+        cpp_entity(std::string name, uint32_t offset = 0) : name_(std::move(name)), user_data_(nullptr), offset_(offset) {}
 
     private:
         /// \returns The kind of the entity.
@@ -184,6 +189,7 @@ namespace cppast
         cpp_attribute_list                        attributes_;
         type_safe::optional_ref<const cpp_entity> parent_;
         mutable std::atomic<void*>                user_data_;
+        uint32_t                                  offset_;
 
         template <typename T>
         friend struct detail::intrusive_list_access;

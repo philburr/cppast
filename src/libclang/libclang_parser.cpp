@@ -42,6 +42,12 @@ bool detail::libclang_compile_config_access::write_preprocessed(
     return config.write_preprocessed_;
 }
 
+bool detail::libclang_compile_config_access::preprocess_only(
+    const libclang_compile_config& config)
+{
+    return config.write_preprocessed_;
+}
+
 bool detail::libclang_compile_config_access::fast_preprocessing(
     const libclang_compile_config& config)
 {
@@ -500,35 +506,35 @@ std::unique_ptr<cpp_file> libclang_parser::do_parse(const cpp_entity_index& idx,
 
     // preprocess
     auto preprocessed = detail::preprocess(config, path.c_str(), logger());
-    if (detail::libclang_compile_config_access::write_preprocessed(config))
-    {
-        std::ofstream file(path + ".pp");
-        file << preprocessed.source;
-    }
 
     // parse
-    auto tu   = get_cxunit(logger(), pimpl_->index, config, path.c_str(), preprocessed.source);
+    auto tu   = get_cxunit(logger(), pimpl_->index, config, path.c_str(), preprocessed->original);
     auto file = clang_getFile(tu.get(), path.c_str());
 
     cpp_file::builder builder(detail::cxstring(clang_getFileName(file)).std_str());
-    auto              macro_iter   = preprocessed.macros.begin();
-    auto              include_iter = preprocessed.includes.begin();
+    auto              macro_iter   = preprocessed->macros.begin();
+    auto              include_iter = preprocessed->includes.begin();
 
     // convert entity hierarchies
     detail::parse_context context{tu.get(),
                                   file,
                                   type_safe::ref(logger()),
                                   type_safe::ref(idx),
-                                  detail::comment_context(preprocessed.comments),
+                                  detail::comment_context(preprocessed->comments),
                                   false};
     detail::visit_tu(tu, path.c_str(), [&](const CXCursor& cur) {
         if (clang_getCursorKind(cur) == CXCursor_InclusionDirective)
         {
-            if (!preprocessed.includes.empty())
+            if (!preprocessed->includes.empty())
             {
-                DEBUG_ASSERT(include_iter != preprocessed.includes.end()
+                DEBUG_ASSERT(include_iter != preprocessed->includes.end()
                                  && get_line_no(cur) >= include_iter->line,
                              detail::assert_handler{});
+
+                auto extent = clang_getCursorExtent(cur);
+                unsigned begin_offset, end_offset;
+                clang_getSpellingLocation(clang_getRangeStart(extent), nullptr, nullptr, nullptr, &begin_offset);
+                //clang_getSpellingLocation(clang_getRangeEnd(extent), nullptr, nullptr, nullptr, &end_offset);
 
                 auto full_path = include_iter->full_path.empty() ? include_iter->file_name :
                                                                    include_iter->full_path;
@@ -546,7 +552,7 @@ std::unique_ptr<cpp_file> libclang_parser::do_parse(const cpp_entity_index& idx,
                 auto include =
                     cpp_include_directive::build(cpp_file_ref(id,
                                                               std::move(include_iter->file_name)),
-                                                 include_iter->kind, std::move(full_path));
+                                                 include_iter->kind, std::move(full_path), begin_offset);
                 context.comments.match(*include, include_iter->line,
                                        false); // must not skip comments,
                                                // includes are not reported in order
@@ -560,7 +566,7 @@ std::unique_ptr<cpp_file> libclang_parser::do_parse(const cpp_entity_index& idx,
         {
             // add macro if needed
             for (auto line = get_line_no(cur);
-                 macro_iter != preprocessed.macros.end() && macro_iter->line <= line; ++macro_iter)
+                 macro_iter != preprocessed->macros.end() && macro_iter->line <= line; ++macro_iter)
                 builder.add_child(std::move(macro_iter->macro));
 
             auto entity = detail::parse_entity(context, &builder.get(), cur);
@@ -569,10 +575,10 @@ std::unique_ptr<cpp_file> libclang_parser::do_parse(const cpp_entity_index& idx,
         }
     });
 
-    for (; macro_iter != preprocessed.macros.end(); ++macro_iter)
+    for (; macro_iter != preprocessed->macros.end(); ++macro_iter)
         builder.add_child(std::move(macro_iter->macro));
 
-    for (auto& c : preprocessed.comments)
+    for (auto& c : preprocessed->comments)
     {
         if (!c.comment.empty())
             builder.add_unmatched_comment(cpp_doc_comment(std::move(c.comment), c.line));
@@ -589,3 +595,23 @@ catch (detail::parse_error& ex)
     set_error();
     return nullptr;
 }
+
+libclang_preprocessor::libclang_preprocessor() : libclang_preprocessor(default_logger()) {}
+
+libclang_preprocessor::libclang_preprocessor(type_safe::object_ref<const diagnostic_logger> logger)
+: preprocessor(logger)
+{
+}
+
+libclang_preprocessor::~libclang_preprocessor() noexcept {}
+
+std::unique_ptr<preprocessor_output> libclang_preprocessor::do_process(const std::string& path,
+                                                                       const compile_config& c) const
+{
+    DEBUG_ASSERT(std::strcmp(c.name(), "libclang") == 0, detail::precondition_error_handler{},
+                 "config has mismatched type");
+    auto& config = static_cast<const libclang_compile_config&>(c);
+
+    return detail::preprocess(config, path.c_str(), logger());
+}
+

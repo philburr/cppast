@@ -81,10 +81,11 @@ namespace cppast
         /// as no other [cppast::cpp_entity]() can refer to it.
         static std::unique_ptr<cpp_include_directive> build(const cpp_file_ref& target,
                                                             cpp_include_kind    kind,
-                                                            std::string         full_path)
+                                                            std::string         full_path,
+                                                            uint32_t            offset)
         {
             return std::unique_ptr<cpp_include_directive>(
-                new cpp_include_directive(target, kind, std::move(full_path)));
+                new cpp_include_directive(target, kind, std::move(full_path), offset));
         }
 
         /// \returns A reference to the [cppast::cpp_file]() it includes.
@@ -109,8 +110,8 @@ namespace cppast
         cpp_entity_kind do_get_entity_kind() const noexcept override;
 
         cpp_include_directive(const cpp_file_ref& target, cpp_include_kind kind,
-                              std::string full_path)
-        : cpp_entity(target.name()),
+                              std::string full_path, uint32_t offset)
+        : cpp_entity(target.name(), offset),
           target_(target.id()[0u]),
           kind_(kind),
           full_path_(std::move(full_path))

@@ -26,6 +26,8 @@ namespace cppast
 
             static bool write_preprocessed(const libclang_compile_config& config);
 
+            static bool preprocess_only(const libclang_compile_config& config);
+
             static bool fast_preprocessing(const libclang_compile_config& config);
 
             static bool remove_comments_in_macro(const libclang_compile_config& config);
@@ -132,6 +134,13 @@ namespace cppast
             write_preprocessed_ = b;
         }
 
+        /// \effects Sets whether or not to only preprocess the file.
+        /// Default value is `false`.
+        void preprocessed_only(bool b) noexcept
+        {
+            preprocess_only_ = b;
+        }
+
         /// \effects Sets whether or not the fast preprocessor is enabled.
         /// Default value is `false`.
         /// \notes The fast preprocessor gets a list of all macros that are defined in the translation unit,
@@ -174,8 +183,20 @@ namespace cppast
         bool        write_preprocessed_ : 1;
         bool        fast_preprocessing_ : 1;
         bool        remove_comments_in_macro_ : 1;
+        bool        preprocess_only_ : 1;
 
         friend detail::libclang_compile_config_access;
+    };
+
+    class libclang_preprocessor final : public preprocessor
+    {
+    public:
+        libclang_preprocessor();
+        explicit libclang_preprocessor(type_safe::object_ref<const diagnostic_logger> logger);
+
+        ~libclang_preprocessor() noexcept override;
+
+        std::unique_ptr<preprocessor_output> do_process(const std::string& path, const compile_config& config) const override;
     };
 
     /// Finds a configuration for a given file.

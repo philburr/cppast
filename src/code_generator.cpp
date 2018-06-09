@@ -515,7 +515,12 @@ namespace
     {
         code_generator::output output(type_safe::ref(generator), type_safe::ref(param), cur_access);
         if (output)
-            write_variable_base(output, param, param.name());
+        {
+            if (output.options() & code_generator::exclude_fn_parameter_names)
+                write_variable_base(output, param, "");
+            else
+                write_variable_base(output, param, param.name());
+        }
         return static_cast<bool>(output);
     }
 
@@ -582,6 +587,27 @@ namespace
         }
     }
 
+    void write_full_scope(code_generator::output& output, type_safe::optional_ref<const cpp_entity> e)
+    {
+        if (e) {
+            auto& entity = e.value();
+            write_full_scope(output, entity.parent());
+
+            switch (entity.kind())
+            {
+            case cpp_entity_kind::function_t:
+                break;
+            case cpp_entity_kind::member_function_t:
+                break;
+            case cpp_entity_kind::class_t:
+            case cpp_entity_kind::class_template_t:
+            case cpp_entity_kind::namespace_t:
+                output << identifier(entity.name()) << punctuation("::");
+                break;
+            }
+        }
+    }
+
     bool generate_function(
         code_generator& generator, const cpp_function& func, cpp_access_specifier_kind cur_access,
         type_safe::optional_ref<const cpp_template_specialization> spec = nullptr)
@@ -601,6 +627,11 @@ namespace
             {
                 detail::write_type(output, func.return_type(), "");
                 output << whitespace;
+            }
+
+            if (output.options() & code_generator::fully_scoped)
+            {
+                write_full_scope(output, func.parent());
             }
 
             output << identifier(func.semantic_scope());
@@ -707,6 +738,11 @@ namespace
                 output << whitespace;
             }
 
+            if (output.options() & code_generator::fully_scoped)
+            {
+                write_full_scope(output, func.parent());
+            }
+
             output << identifier(func.semantic_scope());
             if (spec)
             {
@@ -748,6 +784,11 @@ namespace
             else
                 write_prefix_virtual(output, op.virtual_info());
 
+            if (output.options() & code_generator::fully_scoped)
+            {
+                write_full_scope(output, op.parent());
+            }
+
             output << identifier(op.semantic_scope());
 
             auto pos = op.name().find("operator");
@@ -781,6 +822,11 @@ namespace
             if (ctor.is_constexpr())
                 output << keyword("constexpr") << whitespace;
 
+            if (output.options() & code_generator::fully_scoped)
+            {
+                write_full_scope(output, ctor.parent());
+            }
+
             output << identifier(ctor.semantic_scope()) << identifier(ctor.name());
             write_function_parameters(output, ctor);
             write_noexcept(output, ctor, output.formatting().is_set(formatting_flags::operator_ws));
@@ -799,6 +845,12 @@ namespace
             if (is_friended(dtor))
                 output << keyword("friend") << whitespace;
             write_prefix_virtual(output, dtor.virtual_info());
+
+            if (output.options() & code_generator::fully_scoped)
+            {
+                write_full_scope(output, dtor.parent());
+            }
+
             output << identifier(dtor.semantic_scope()) << identifier(dtor.name())
                    << punctuation("(") << punctuation(")");
             write_noexcept(output, dtor, output.formatting().is_set(formatting_flags::operator_ws));

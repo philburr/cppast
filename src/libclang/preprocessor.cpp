@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <memory>
 #include <unordered_map>
 
 #include <process.hpp>
@@ -22,9 +23,9 @@ using namespace cppast;
 namespace tpl = TinyProcessLib;
 namespace ts  = type_safe;
 
-bool detail::pp_doc_comment::matches(const cpp_entity&, unsigned e_line)
+bool pp_doc_comment::matches(const cpp_entity&, unsigned e_line)
 {
-    if (kind == detail::pp_doc_comment::end_of_line)
+    if (kind == pp_doc_comment::end_of_line)
         return line == e_line;
     else
         return line + 1u == e_line;
@@ -397,6 +398,7 @@ namespace
     struct clang_preprocess_result
     {
         std::string              file;
+        std::string              original;
         std::vector<std::string> included_files; // needed for pre-clang 4.0.0
     };
 
@@ -436,6 +438,15 @@ namespace
                 else
                     diagnostic.push_back(*str);
         };
+
+        std::ifstream file(full_path);
+        if (file)
+        {
+            std::stringstream str;
+            str << file.rdbuf();
+            file.close();
+            result.original = str.str();
+        }
 
         auto         cmd = get_preprocess_command(c, full_path.c_str(), macro_path);
         tpl::Process process(cmd, "",
@@ -657,10 +668,10 @@ namespace
                 p.skip();
     }
 
-    detail::pp_doc_comment parse_c_doc_comment(position& p)
+    pp_doc_comment parse_c_doc_comment(position& p)
     {
-        detail::pp_doc_comment result;
-        result.kind = detail::pp_doc_comment::c;
+        pp_doc_comment result;
+        result.kind = pp_doc_comment::c;
 
         auto indent = p.cur_column() + 3;
 
@@ -736,7 +747,7 @@ namespace
         return result;
     }
 
-    bool skip_c_comment(position& p, detail::preprocessor_output& output)
+    bool skip_c_comment(position& p, preprocessor_output& output)
     {
         if (!starts_with(p, "/*"))
             return false;
@@ -761,11 +772,11 @@ namespace
         return true;
     }
 
-    detail::pp_doc_comment parse_cpp_doc_comment(position& p, bool end_of_line)
+    pp_doc_comment parse_cpp_doc_comment(position& p, bool end_of_line)
     {
-        detail::pp_doc_comment result;
+        pp_doc_comment result;
         result.kind =
-            end_of_line ? detail::pp_doc_comment::end_of_line : detail::pp_doc_comment::cpp;
+            end_of_line ? pp_doc_comment::end_of_line : pp_doc_comment::cpp;
         if (starts_with(p, " "))
             // skip one whitespace at most
             p.skip();
@@ -784,14 +795,14 @@ namespace
         return result;
     }
 
-    bool can_merge_comment(const detail::pp_doc_comment& comment, unsigned cur_line)
+    bool can_merge_comment(const pp_doc_comment& comment, unsigned cur_line)
     {
         return comment.line + 1 == cur_line
-               && (comment.kind == detail::pp_doc_comment::cpp
-                   || comment.kind == detail::pp_doc_comment::end_of_line);
+               && (comment.kind == pp_doc_comment::cpp
+                   || comment.kind == pp_doc_comment::end_of_line);
     }
 
-    void merge_or_add(detail::preprocessor_output& output, detail::pp_doc_comment comment)
+    void merge_or_add(preprocessor_output& output, pp_doc_comment comment)
     {
         if (output.comments.empty() || !can_merge_comment(output.comments.back(), comment.line))
             output.comments.push_back(std::move(comment));
@@ -799,12 +810,12 @@ namespace
         {
             auto& result = output.comments.back();
             result.comment += "\n" + std::move(comment.comment);
-            if (result.kind != detail::pp_doc_comment::end_of_line)
+            if (result.kind != pp_doc_comment::end_of_line)
                 result.line = comment.line;
         }
     }
 
-    bool skip_cpp_comment(position& p, detail::preprocessor_output& output)
+    bool skip_cpp_comment(position& p, preprocessor_output& output)
     {
         if (!starts_with(p, "//"))
             return false;
@@ -834,7 +845,7 @@ namespace
     }
 
     std::unique_ptr<cpp_macro_definition> parse_macro(position&                    p,
-                                                      detail::preprocessor_output& output)
+                                                      preprocessor_output& output)
     {
         // format (at new line): #define <name> [replacement]
         // or: #define <name>(<args>) [replacement]
@@ -904,7 +915,7 @@ namespace
         return result;
     }
 
-    type_safe::optional<detail::pp_include> parse_include(position& p)
+    type_safe::optional<pp_include> parse_include(position& p)
     {
         // format (at new line, literal <>): #include <filename>
         // or: #include "filename"
@@ -949,7 +960,7 @@ namespace
             && (filename[1] == '/' || filename[1] == '\\'))
             filename = filename.substr(2);
 
-        return detail::pp_include{std::move(filename), "", include_kind, p.cur_line()};
+        return pp_include{std::move(filename), "", include_kind, p.cur_line()};
     }
 
     bool bump_pragma(position& p)
@@ -1040,10 +1051,10 @@ namespace
     }
 } // namespace
 
-detail::preprocessor_output detail::preprocess(const libclang_compile_config& config,
-                                               const char* path, const diagnostic_logger& logger)
+std::unique_ptr<preprocessor_output> detail::preprocess(const libclang_compile_config& config,
+                                                        const char* path, const diagnostic_logger& logger)
 {
-    detail::preprocessor_output                  result;
+    std::unique_ptr<preprocessor_output> result(new preprocessor_output());
     std::unordered_map<std::string, std::string> indirect_includes;
 
     auto preprocessed = clang_preprocess(config, path, logger);
@@ -1052,10 +1063,12 @@ detail::preprocessor_output detail::preprocess(const libclang_compile_config& co
     {
         // add headers from diagnostics w/o line information
         for (auto name : preprocessed.included_files)
-            result.includes.push_back(pp_include{name, "", cpp_include_kind::local, 1u});
+            result->includes.push_back(pp_include{name, "", cpp_include_kind::local, 1u});
     }
 
-    position p(ts::ref(result.source), preprocessed.file.c_str());
+    result->original = preprocessed.original;
+
+    position p(ts::ref(result->source), preprocessed.file.c_str());
     ts::flag in_string(false), in_char(false), first_line(true);
     while (p)
     {
@@ -1083,7 +1096,7 @@ detail::preprocessor_output detail::preprocess(const libclang_compile_config& co
         }
         else if (in_string == true || in_char == true)
             p.bump();
-        else if (auto macro = parse_macro(p, result))
+        else if (auto macro = parse_macro(p, *result.get()))
         {
             if (logger.is_verbose())
                 logger.log("preprocessor",
@@ -1091,7 +1104,7 @@ detail::preprocessor_output detail::preprocess(const libclang_compile_config& co
                                              source_location::make_file(path, p.cur_line()),
                                              "parsing macro '", macro->name(), "'"));
 
-            result.macros.push_back({std::move(macro), p.cur_line()});
+            result->macros.push_back({std::move(macro), p.cur_line()});
         }
         else if (auto undef = parse_undef(p))
         {
@@ -1103,11 +1116,11 @@ detail::preprocessor_output detail::preprocess(const libclang_compile_config& co
                                                  source_location::make_file(path, p.cur_line()),
                                                  "undefining macro '", undef.value(), "'"));
 
-                result.macros.erase(std::remove_if(result.macros.begin(), result.macros.end(),
+                result->macros.erase(std::remove_if(result->macros.begin(), result->macros.end(),
                                                    [&](const pp_macro& e) {
                                                        return e.macro->name() == undef.value();
                                                    }),
-                                    result.macros.end());
+                                    result->macros.end());
             }
         }
         else if (auto include = parse_include(p))
@@ -1121,7 +1134,19 @@ detail::preprocessor_output detail::preprocess(const libclang_compile_config& co
                                                  "parsing include '", include.value().file_name,
                                                  "'"));
 
-                result.includes.push_back(std::move(include.value()));
+                bool add = true;
+                for (auto& inc : result->includes)
+                {
+                    if (inc.file_name == include.value().file_name)
+                    {
+                        add = false;
+                        break;
+                    }
+                }
+                if (add)
+                {
+                    result->includes.push_back(std::move(include.value()));
+                }
             }
         }
         else if (bump_pragma(p))
@@ -1135,13 +1160,14 @@ detail::preprocessor_output detail::preprocess(const libclang_compile_config& co
                     // this is a direct include, update the full path of the last include
                     // note: path can be empty if pre clang 4 and not fast preprocessing
                     // in this case we can't get the full path at all
-                    if (!result.includes.empty())
+                    if (!result->includes.empty())
                     {
-                        DEBUG_ASSERT(result.includes.back().full_path.empty()
-                                         && lm.value().file.find(result.includes.back().file_name)
-                                                != std::string::npos,
-                                     detail::assert_handler{});
-                        result.includes.back().full_path = lm.value().file;
+                        if (result->includes.back().full_path.empty()
+                                         && lm.value().file.find(result->includes.back().file_name)
+                                                != std::string::npos)
+                        {
+                            result->includes.back().full_path = lm.value().file;
+                        }
                     }
                 }
                 else
@@ -1156,13 +1182,13 @@ detail::preprocessor_output detail::preprocess(const libclang_compile_config& co
                     indirect_includes.emplace(std::move(file_name), full_path);
                 }
 
-                p.disable_write();
+                //p.disable_write();
             }
             else if (lm.value().flag == linemarker::enter_old)
             {
                 if (lm.value().file == path)
                 {
-                    p.enable_write();
+                    //p.enable_write();
                     p.set_line(lm.value().line);
                 }
             }
@@ -1186,15 +1212,15 @@ detail::preprocessor_output detail::preprocess(const libclang_compile_config& co
                 }
                 else
                 {
-                    DEBUG_ASSERT(lm.value().line >= p.cur_line(), detail::assert_handler{});
+                    //DEBUG_ASSERT(lm.value().line >= p.cur_line(), detail::assert_handler{});
                     while (p.cur_line() < lm.value().line)
                         p.write_str("\n");
                 }
             }
         }
-        else if (skip_c_comment(p, result))
+        else if (skip_c_comment(p, *result.get()))
             continue;
-        else if (skip_cpp_comment(p, result))
+        else if (skip_cpp_comment(p, *result.get()))
             continue;
         else
             p.bump();
@@ -1204,7 +1230,7 @@ detail::preprocessor_output detail::preprocess(const libclang_compile_config& co
     // doesn't work if fast preprocessing
     if (!detail::libclang_compile_config_access::fast_preprocessing(config))
     {
-        for (auto& include : result.includes)
+        for (auto& include : result->includes)
             if (include.full_path.empty())
             {
                 auto last_sep = include.file_name.find_last_of("/\\");

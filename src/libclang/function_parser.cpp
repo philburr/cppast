@@ -526,8 +526,15 @@ namespace
     {
         auto name = detail::get_cursor_name(cur);
 
+        auto extent = clang_getCursorExtent(cur);
+        unsigned begin_offset, end_offset;
+        clang_getSpellingLocation(clang_getRangeStart(extent), nullptr, nullptr, nullptr, &begin_offset);
+        clang_getSpellingLocation(clang_getRangeEnd(extent), nullptr, nullptr, nullptr, &end_offset);
+
         detail::cxtokenizer    tokenizer(context.tu, context.file, cur);
         detail::cxtoken_stream stream(tokenizer, cur);
+
+        unsigned body_begin_offset = tokenizer.end_offset();
 
         auto prefix = parse_prefix_info(stream, name.c_str(), false);
         DEBUG_ASSERT(!prefix.is_virtual && !prefix.is_explicit, detail::parse_error_handler{}, cur,
@@ -535,7 +542,10 @@ namespace
 
         cpp_function::builder builder(name.c_str(),
                                       detail::parse_type(context, cur,
-                                                         clang_getCursorResultType(cur)));
+                                                         clang_getCursorResultType(cur)),
+                                      begin_offset,
+                                      body_begin_offset,
+                                      end_offset);
         context.comments.match(builder.get(), cur);
         builder.get().add_attribute(prefix.attributes);
 
@@ -681,8 +691,15 @@ std::unique_ptr<cpp_entity> detail::parse_cpp_member_function(const detail::pars
                  detail::assert_handler{});
     auto name = detail::get_cursor_name(cur);
 
+    auto extent = clang_getCursorExtent(cur);
+    unsigned begin_offset, end_offset;
+    clang_getSpellingLocation(clang_getRangeStart(extent), nullptr, nullptr, nullptr, &begin_offset);
+    clang_getSpellingLocation(clang_getRangeEnd(extent), nullptr, nullptr, nullptr, &end_offset);
+
     detail::cxtokenizer    tokenizer(context.tu, context.file, cur);
     detail::cxtoken_stream stream(tokenizer, cur);
+
+    unsigned body_begin_offset = tokenizer.end_offset();
 
     auto prefix = parse_prefix_info(stream, name.c_str(), false);
     DEBUG_ASSERT(!prefix.is_explicit, detail::parse_error_handler{}, cur,
@@ -690,7 +707,10 @@ std::unique_ptr<cpp_entity> detail::parse_cpp_member_function(const detail::pars
 
     cpp_member_function::builder builder(name.c_str(),
                                          detail::parse_type(context, cur,
-                                                            clang_getCursorResultType(cur)));
+                                                            clang_getCursorResultType(cur)),
+                                         begin_offset,
+                                         body_begin_offset,
+                                         end_offset);
     context.comments.match(builder.get(), cur);
     builder.get().add_attribute(prefix.attributes);
     add_parameters(context, builder, cur);
@@ -756,7 +776,10 @@ std::unique_ptr<cpp_entity> detail::parse_cpp_conversion_op(const detail::parse_
 
     auto                       type = clang_getCursorResultType(cur);
     cpp_conversion_op::builder builder("operator " + type_spelling,
-                                       detail::parse_type(context, cur, type));
+                                       detail::parse_type(context, cur, type),
+                                       0,
+                                       0,
+                                       0);
     context.comments.match(builder.get(), cur);
     builder.get().add_attribute(prefix.attributes);
     if (prefix.is_explicit)
@@ -779,14 +802,21 @@ std::unique_ptr<cpp_entity> detail::parse_cpp_constructor(const detail::parse_co
     if (pos != std::string::npos)
         name.erase(pos);
 
+    auto extent = clang_getCursorExtent(cur);
+    unsigned begin_offset, end_offset;
+    clang_getSpellingLocation(clang_getRangeStart(extent), nullptr, nullptr, nullptr, &begin_offset);
+    clang_getSpellingLocation(clang_getRangeEnd(extent), nullptr, nullptr, nullptr, &end_offset);
+
     detail::cxtokenizer    tokenizer(context.tu, context.file, cur);
     detail::cxtoken_stream stream(tokenizer, cur);
+
+    unsigned body_begin_offset = tokenizer.end_offset();
 
     auto prefix = parse_prefix_info(stream, name.c_str(), true);
     DEBUG_ASSERT(!prefix.is_virtual, detail::parse_error_handler{}, cur,
                  "constructor cannot be virtual");
 
-    cpp_constructor::builder builder(name.c_str());
+    cpp_constructor::builder builder(name.c_str(), begin_offset, body_begin_offset, end_offset);
     context.comments.match(builder.get(), cur);
     add_parameters(context, builder, cur);
     builder.get().add_attribute(prefix.attributes);
@@ -818,14 +848,21 @@ std::unique_ptr<cpp_entity> detail::parse_cpp_destructor(const detail::parse_con
 {
     DEBUG_ASSERT(clang_getCursorKind(cur) == CXCursor_Destructor, detail::assert_handler{});
 
+    auto extent = clang_getCursorExtent(cur);
+    unsigned begin_offset, end_offset;
+    clang_getSpellingLocation(clang_getRangeStart(extent), nullptr, nullptr, nullptr, &begin_offset);
+    clang_getSpellingLocation(clang_getRangeEnd(extent), nullptr, nullptr, nullptr, &end_offset);
+
     detail::cxtokenizer    tokenizer(context.tu, context.file, cur);
     detail::cxtoken_stream stream(tokenizer, cur);
+
+    unsigned body_begin_offset = tokenizer.end_offset();
 
     auto prefix_info = parse_prefix_info(stream, "~", true);
     DEBUG_ASSERT(!prefix_info.is_constexpr && !prefix_info.is_explicit, detail::assert_handler{});
 
     auto                    name = std::string("~") + stream.get().c_str();
-    cpp_destructor::builder builder(std::move(name));
+    cpp_destructor::builder builder(std::move(name), begin_offset, body_begin_offset, end_offset);
     context.comments.match(builder.get(), cur);
     builder.get().add_attribute(prefix_info.attributes);
 

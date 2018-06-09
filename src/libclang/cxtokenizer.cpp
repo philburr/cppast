@@ -302,9 +302,9 @@ namespace
 detail::cxtokenizer::cxtokenizer(const CXTranslationUnit& tu, const CXFile& file,
                                  const CXCursor& cur)
 {
-    auto extent = get_extent(tu, file, cur, unmunch_);
+    extent_ = get_extent(tu, file, cur, unmunch_);
 
-    simple_tokenizer tokenizer(tu, extent);
+    simple_tokenizer tokenizer(tu, extent_);
     tokens_.reserve(tokenizer.size());
     for (auto i = 0u; i != tokenizer.size(); ++i)
         tokens_.emplace_back(tu, tokenizer[i]);

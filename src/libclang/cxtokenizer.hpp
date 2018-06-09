@@ -88,9 +88,26 @@ namespace cppast
                 return unmunch_;
             }
 
+            unsigned start_offset() const
+            {
+                unsigned offset = 0;
+                auto location = clang_getRangeStart(extent_);
+                clang_getSpellingLocation(location, nullptr, nullptr, nullptr, &offset);
+                return offset;
+            }
+
+            unsigned end_offset() const
+            {
+                unsigned offset = 0;
+                auto location = clang_getRangeEnd(extent_);
+                clang_getSpellingLocation(location, nullptr, nullptr, nullptr, &offset);
+                return offset;
+            }
+
         private:
             std::vector<cxtoken> tokens_;
             bool                 unmunch_;
+            CXSourceRange        extent_;
         };
 
         class cxtoken_stream
